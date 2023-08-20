@@ -1,21 +1,64 @@
-env:
-  CONSUMER_API_KEY: ${{ secrets.TWITTER_CONSUMER_API_KEY }}
-  CONSUMER_API_SECRET_KEY: ${{ secrets.TWITTER_CONSUMER_API_SECRET_KEY }}
-  ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
-  ACCESS_TOKEN_SECRET: ${{ secrets.TWITTER_ACCESS_TOKEN_SECRET }}
-steps:
-  - uses: actions/checkout@v3
-  - name: Tweet summary
-    id: summary
-    uses: snow-actions/tweet@v1.4.0
-    with:
-      status: |
-        capture automated screenshot every 1 hour of @ynet - https://ynet.co.il
-      media_paths:
-        ynet.png
-  - name: Tweet details
-    uses: snow-actions/tweet@v1.4.0
-    with:
-      status: |
-        Additional information
-      in_reply_to_status_id: ${{ fromJSON(steps.summary.outputs.response).id_str }}
+name: Take screenshots
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  shot-scraper:
+    runs-on: ubuntu-latest
+    if: ${{ github.repository != 'simonw/shot-scraper-template' }}
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.10"
+    - uses: actions/cache@v3
+      name: Configure pip caching
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    - name: Cache Playwright browsers
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/ms-playwright/
+        key: ${{ runner.os }}-browsers
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+    - name: Install Playwright dependencies
+      run: |
+        shot-scraper install
+    - uses: actions/github-script@v6
+      name: Create shots.yml if missing on first run
+      with:
+        script: |
+          const fs = require('fs');
+          if (!fs.existsSync('shots.yml')) {
+              const desc = context.payload.repository.description;
+              let line = '';
+              if (desc && (desc.startsWith('http://') || desc.startsWith('https://'))) {
+                  line = `- url: ${desc}` + '\n  output: shot.png\n  height: 800';
+              } else {
+                  line = '# - url: https://www.example.com/\n#   output: shot.png\n#   height: 800';
+              }
+              fs.writeFileSync('shots.yml', line + '\n');
+          }
+    - name: Take shots
+      run: |
+        shot-scraper multi shots.yml
+    - name: Commit and push
+      run: |-
+        git config user.name "Automated"
+        git config user.email "actions@users.noreply.github.com"
+        git add -A
+        timestamp=$(date -u)
+        git commit -m "${timestamp}" || exit 0
+        git pull --rebase
+        git push
