@@ -9,9 +9,9 @@ steps:
     id: summary
     uses: snow-actions/tweet@v1.4.0
     with:
-      status:
+      status: |
         capture automated screenshot every 1 hour of @ynet - https://ynet.co.il
-      media_paths: |
+      media_paths:
         ynet.png
   - name: Tweet details
     uses: snow-actions/tweet@v1.4.0
